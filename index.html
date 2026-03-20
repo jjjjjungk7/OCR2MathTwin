@@ -292,17 +292,18 @@
           STRICT RULES:
           1. STRICTLY IGNORE all handwritten notes, solving steps, red/blue grading circles (O), large X marks, checkmarks, stars, and handwritten scores.
           2. Extract ONLY the original typed text, numbers, and formulas.
-          3. Output formulas using strict LaTeX: inline math in $...$, block math in $$...$$. CRITICAL: ANY block environment (like \\begin{array}...\end{array} or \\begin{align}) MUST be completely enclosed inside $$ ... $$. Do NOT leave \\begin tags bare.
-          4. DIAGRAMS (NEW): If the image contains formal printed geometric shapes (rectangles, triangles, circles, graphs, etc.), you MUST recreate them using raw HTML <svg> code in the 'diagramSvg' field. Use a scalable 'viewBox' (e.g. viewBox="0 0 300 150"). Draw the printed shapes (<rect>, <polygon>, etc.). 
-          CRITICAL: You MUST COMPLETELY IGNORE any freehand drawings, large hand-drawn circles (like grading marks crossing the image), scribbles, or irregular lines drawn by a student or teacher. ONLY draw the formal, mathematically intended printed diagram.
-          CRITICAL FOR DIAGRAM LABELS: To add math labels to the diagram, DO NOT use standard <text> tags. You MUST use <foreignObject> embedding a HTML <div> with strict LaTeX enclosed in $...$. 
-          Example: <foreignObject x="10" y="20" width="100" height="50" overflow="visible"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex; justify-content:center; align-items:center; width:100%; height:100%; font-size:14px;">$(- \\frac{ab}{2})^2$</div></foreignObject>. 
-          Make sure 'width' and 'height' of foreignObject are large enough so the math is not cut off. If no diagram, leave it empty.
-          5. Replace geometric images or graphs with a descriptive placeholder: "[Insert Diagram: <description>]" in the 'diagramPlaceholder' field as a backup.
+          3. STRICT MATH ENCLOSURE (CRITICAL): ALL math formulas, expressions, variables, square roots (\\sqrt), fractions, and multiple-choice options containing math (e.g. ① $-1+2\\sqrt{2}$) MUST BE ENCLOSED IN $...$ for inline math or $$...$$ for block math. NEVER leave LaTeX commands bare. ANY block environment (like \\begin{array}...\end{array}) MUST be completely enclosed inside $$ ... $$.
+          4. DIAGRAMS (CRITICAL): If the image contains formal printed geometric shapes, coordinate planes, grids, number lines, arcs, etc., you MUST recreate them accurately using raw HTML <svg> code in the 'diagramSvg' field. 
+             - You are an expert SVG coder. Even for complex diagrams (grids, arcs, overlapping shapes), you MUST write the full SVG code using <rect>, <polygon>, <path>, <circle>, <line>. 
+             - DO NOT give up and use the diagram placeholder for geometric figures. Write the SVG!
+             - COMPLETELY IGNORE freehand drawings, large hand-drawn circles, scribbles, or irregular pencil lines. ONLY draw the formal, mathematically intended printed diagram.
+             - For diagram math labels, DO NOT use standard <text> tags. You MUST use <foreignObject> embedding a HTML <div> with strict LaTeX enclosed in $...$. 
+             Example: <foreignObject x="10" y="20" width="100" height="50" overflow="visible"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex; justify-content:center; align-items:center; width:100%; height:100%; font-size:14px;">$(- \\frac{ab}{2})^2$</div></foreignObject>.
+          5. Replace geometric images ONLY IF they are real photographs with "[Insert Diagram: <description>]" in the 'diagramPlaceholder' field. Otherwise, leave it empty.
           6. NUMBERING: The questions MUST be numbered sequentially starting from ${nextId}. The very first question you extract MUST be labeled as "${nextId}".
           7. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
           8. NO BARE COMMANDS: NEVER use LaTeX commands like \\boxed{} or \\text{} outside of math blocks ($...$ or $$...$$). For fill-in-the-blanks like a box around (가), simply use plain text (가).
-          9. JSON ESCAPING: Since you are outputting JSON, you must properly escape backslashes. For example: write "\\\\frac" instead of "\\frac", and "\\\\right" instead of "\\right".`;
+          9. JSON ESCAPING: Since you are outputting JSON, you must properly escape backslashes. For example: write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".`;
 
           const payload = {
             contents: [{
@@ -388,11 +389,11 @@
           2. Change the numbers, functions, coefficients, or situational contexts. 
           3. Keep the exact same difficulty level.
           4. Provide a detailed, step-by-step solution for the NEW variant.
-          5. Use strict LaTeX for all math ($...$ and $$...$$). CRITICAL: ANY block environment (like \\begin{array}...\end{array}) MUST be completely enclosed inside $$ ... $$.
+          5. STRICT MATH ENCLOSURE (CRITICAL): ALL math formulas, expressions, variables, square roots (\\sqrt), fractions, and multiple-choice options containing math MUST BE ENCLOSED IN $...$ for inline math or $$...$$ for block math. NEVER leave LaTeX commands bare. ANY block environment (like \\begin{array}...\end{array}) MUST be completely enclosed inside $$ ... $$.
           6. PRESERVE the exact '_uid' and 'id' fields from the input.
           7. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
           8. NO BARE COMMANDS: NEVER use LaTeX commands like \\boxed{} or \\text{} outside of math blocks. Use plain text like (가) for blanks.
-          9. JSON ESCAPING: Since you are outputting JSON, you must properly escape backslashes. For example: write "\\\\frac" instead of "\\frac", and "\\\\right" instead of "\\right".
+          9. JSON ESCAPING: Since you are outputting JSON, you must properly escape backslashes. For example: write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".
           10. DIAGRAMS: If the original problem has a 'diagramSvg', you MUST generate a 'variantDiagramSvg' with the SAME shapes, but UPDATE the <foreignObject> labels inside the SVG to match the new numbers/variables in your Twin Variant using strict LaTeX ($...$). Ensure the <foreignObject> width/height is large enough. If the original had no SVG, leave empty.`;
 
           const payload = {
