@@ -303,7 +303,7 @@
             return { inlineData: { mimeType: file.type, data: base64Data } };
           }));
 
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${effectiveApiKey}`;
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${effectiveApiKey}`;
           
           const prompt = `You are an expert Math OCR AI for Korean Middle/High School exams. I am providing one or more images of an exam test paper.
           STRICT RULES:
@@ -403,7 +403,7 @@
         }
 
         try {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${effectiveApiKey}`;
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${effectiveApiKey}`;
           
           const prompt = `You are an expert Mathematics Educator. I am providing a JSON array of extracted math problems.
           For each problem, create a "Twin Problem" (a conceptual variant).
