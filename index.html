@@ -23,22 +23,14 @@
     /* Print specific styles */
     .print-only { display: none; }
     
-    /* --- BUG FIX: Protect KaTeX from Tailwind Preflight --- */
-    .katex * {
-        box-sizing: content-box !important;
-        border-color: currentColor !important;
-    }
-    
-    /* Tailwind sets global SVG rules that squash KaTeX's microscopic square root SVGs to 0px. */
-    .katex svg {
-        display: block !important;
-        position: absolute !important;
-        width: 100% !important;
-        height: inherit !important;
-        max-width: none !important;
+    /* --- MATHML STYLING --- */
+    /* Style the native MathML tags so they look like beautiful textbook typography */
+    math {
+        font-family: 'Cambria Math', 'Latin Modern Math', 'Times New Roman', serif;
+        font-size: 1.05em;
     }
 
-    /* Ensure AI-generated SVGs fit within columns properly, but DO NOT target nested KaTeX SVGs */
+    /* Ensure AI-generated diagram SVGs fit within columns properly */
     .diagram-wrapper > svg {
         width: 100%;
         height: auto !important;
@@ -95,13 +87,6 @@
         max-width: 100%;
         height: auto;
       }
-      .katex {
-        font-size: 0.95em;
-      }
-      /* Fallback: If KaTeX errors out, print the error in black instead of glaring red */
-      .katex-error {
-        color: black !important;
-      }
       .solutions-section { page-break-before: always; column-count: 1; }
       .solution-item { break-inside: avoid; margin-bottom: 20px; }
     }
@@ -153,10 +138,25 @@
       }
     };
 
-    // --- Math Rendering Component ---
+    // --- Math Rendering Engine & Auto-Corrector ---
+    const processMathForKaTeX = (mathStr) => {
+      // 1. Unescape < and > so inequalities parse correctly in KaTeX!
+      let unescaped = mathStr.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+      
+      // 2. Remove line breaks inside inline math which causes fatal parse errors
+      unescaped = unescaped.replace(/\n/g, ' '); 
+      
+      // 3. AUTO-CORRECTOR: If the AI mistakenly placed Korean characters INSIDE the math tags 
+      //    (e.g., $0.4x > 1을$), this instantly wraps them in \text{을} to prevent KaTeX from crashing in red text!
+      unescaped = unescaped.replace(/([가-힣ㄱ-ㅎㅏ-ㅣ]+)/g, '\\text{$1}');
+      
+      return unescaped;
+    };
+
     const formatMathText = (text) => {
       if (!text) return { __html: '' };
       
+      // Escape all HTML to prevent code injection, EXCEPT for what we render via KaTeX
       let html = text
         .replace(/&amp;/g, '&') 
         .replace(/</g, "&lt;")  
@@ -164,13 +164,12 @@
         
       if (typeof window !== 'undefined' && window.katex) {
         html = html.replace(/\$\$(.*?)\$\$/gs, (match, math) => {
-          const unescapedMath = math.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-          try { return window.katex.renderToString(unescapedMath, { displayMode: true, throwOnError: false }); }
+          // NATIVE MATHML: Instead of drawing shapes, output standard <math> tags that browsers render perfectly.
+          try { return window.katex.renderToString(processMathForKaTeX(math), { displayMode: true, throwOnError: false, output: 'mathml' }); }
           catch (e) { return match; }
         })
         .replace(/\$(.*?)\$/gs, (match, math) => {
-          const unescapedMath = math.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-          try { return window.katex.renderToString(unescapedMath, { displayMode: false, throwOnError: false }); }
+          try { return window.katex.renderToString(processMathForKaTeX(math), { displayMode: false, throwOnError: false, output: 'mathml' }); }
           catch (e) { return match; }
         });
       }
@@ -186,13 +185,11 @@
         
       if (typeof window !== 'undefined' && window.katex) {
         html = html.replace(/\$\$(.*?)\$\$/gs, (match, math) => {
-          const unescapedMath = math.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-          try { return window.katex.renderToString(unescapedMath, { displayMode: true, throwOnError: false }); }
+          try { return window.katex.renderToString(processMathForKaTeX(math), { displayMode: true, throwOnError: false, output: 'mathml' }); }
           catch (e) { return match; }
         })
         .replace(/\$(.*?)\$/gs, (match, math) => {
-          const unescapedMath = math.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-          try { return window.katex.renderToString(unescapedMath, { displayMode: false, throwOnError: false }); }
+          try { return window.katex.renderToString(processMathForKaTeX(math), { displayMode: false, throwOnError: false, output: 'mathml' }); }
           catch (e) { return match; }
         });
       }
@@ -315,26 +312,27 @@
           STRICT RULES:
           1. STRICTLY IGNORE all handwritten notes, solving steps, red/blue grading circles (O), large X marks, checkmarks, stars, and handwritten scores.
           2. Extract ONLY the original typed text, numbers, and formulas.
-          3. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical symbol, inequality (<, >, \\le, \\ge), variable, fraction, root (\\sqrt), and multiple-choice option MUST be enclosed in $...$ (inline) or $$...$$ (block).
-             - Correct: \`$0.4x+0.1 > \\frac{1}{6}x-2$\`
-             - Correct: \`① $-1+2\\sqrt{2}$\`
-             - Incorrect: \`0.4x+0.1 > \\frac{1}{6}x-2\` (Missing $)
-             - Incorrect: \`① -1+2\\sqrt{2}\` (Missing $)
-          4. NO KOREAN IN MATH BLOCKS: NEVER place Korean characters or plain text punctuation inside $...$ or $$...$$. Separate them!
-             - Correct: \`$x$가 정수일 때\`
-             - Incorrect: \`$x가 정수일 때$\` (This causes fatal rendering errors)
-          5. DIAGRAMS (CRITICAL): If the image contains formal printed geometric shapes, coordinate planes, grids, number lines, arcs, etc., you MUST recreate them accurately using raw HTML <svg> code in the 'diagramSvg' field. 
+          3. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical equation, expression, inequality (<, >, \\le, \\ge), variable, fraction, root (\\sqrt), and multiple-choice option MUST be enclosed in $...$ (inline) or $$...$$ (block).
+             - Good: "일차부등식 $0.4x+0.1 > \\frac{1}{6}x-2$를 푸시오."
+             - BAD: "일차부등식 0.4x+0.1 > \\frac{1}{6}x-2를 푸시오." (Missing $)
+             - Good: "① $-1+2\\sqrt{2}$"
+             - BAD: "① -1+2\\sqrt{2}" (Missing $)
+             - IF YOU OMIT $ TAGS AROUND MATH, THE SYSTEM WILL FATALLY CRASH.
+          4. NO KOREAN IN MATH BLOCKS: NEVER place Korean characters inside $...$ or $$...$$. Separate them!
+             - Correct: "$x$가 정수일 때"
+             - Incorrect: "$x가 정수일 때$"
+             - Use \\square instead of \\Box for square shapes.
+          5. DIAGRAMS: If the image contains formal printed geometric shapes, coordinate planes, grids, number lines, arcs, etc., you MUST recreate them accurately using raw HTML <svg> code in the 'diagramSvg' field. 
              - You are an expert SVG coder. Write the full SVG code using <rect>, <polygon>, <path>, <circle>, <line>. 
-             - PADDING: ALWAYS add generous padding to your viewBox (e.g., viewBox="-40 -40 400 300") so no shapes or labels are cut off at the edges.
-             - MULTIPLE CHOICE GRAPHS: If the multiple-choice options (①~⑤) are themselves diagrams (like 5 different number lines), you MUST draw ALL 5 of them neatly spaced out vertically inside the single 'diagramSvg' and label them (①, ②, etc.).
-             - SIMPLE LABELS: For simple numbers (like 1, -3, 0) or single letters (A, B, x), use standard SVG <text> tags (e.g., <text x="50" y="50" text-anchor="middle" font-size="14">-3</text>).
+             - PADDING: ALWAYS add generous padding to your viewBox so no shapes or labels are cut off.
+             - MULTIPLE CHOICE GRAPHS: If the multiple-choice options (①~⑤) are themselves graphs (like 5 different number lines), you MUST draw ALL 5 of them neatly spaced out vertically inside the single 'diagramSvg' and label them (①, ②, etc.).
+             - SIMPLE LABELS: For simple numbers (like 1, -3, 0), use standard SVG <text> tags.
              - COMPLEX MATH LABELS: ONLY use <foreignObject> for complex LaTeX math (fractions, roots, exponents). Example: <foreignObject x="10" y="20" width="120" height="60" overflow="visible"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex; justify-content:center; align-items:center; width:100%; height:100%; font-size:14px; white-space:nowrap;">$(- \\frac{ab}{2})^2$</div></foreignObject>.
              - COMPLETELY IGNORE freehand drawings, scribbles, or grading lines. ONLY draw the formal, printed diagram.
           6. Replace geometric images ONLY IF they are real photographs with "[Insert Diagram: <description>]" in the 'diagramPlaceholder' field. Otherwise, leave it empty.
           7. NUMBERING: The questions MUST be numbered sequentially starting from ${nextId}. The very first question you extract MUST be labeled as "${nextId}".
           8. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
-          9. NO BARE COMMANDS: NEVER use LaTeX commands like \\boxed{} or \\text{} outside of math blocks. For fill-in-the-blanks, use plain text like (가).
-          10. JSON ESCAPING: Since you are outputting JSON, properly escape backslashes. Write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".`;
+          9. JSON ESCAPING: Properly escape backslashes in JSON. Write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".`;
 
           const payload = {
             contents: [{
@@ -399,8 +397,6 @@
       const generateTwins = async () => {
         if (problems.length === 0) return;
         
-        // If there are unprocessed problems, only process those to save tokens.
-        // If all problems already have variants, regenerate ALL of them for a new set.
         const targetProblems = problems.some(p => !p.variantLatex) 
           ? problems.filter(p => !p.variantLatex) 
           : problems;
@@ -425,22 +421,20 @@
           2. Change the numbers, functions, coefficients, or situational contexts. 
           3. Keep the exact same difficulty level.
           4. Provide a detailed, step-by-step solution for the NEW variant.
-          5. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical symbol, inequality (<, >, \\le, \\ge), variable, fraction, root (\\sqrt), and multiple-choice option MUST be enclosed in $...$ (inline) or $$...$$ (block).
-             - Correct: \`$0.4x+0.1 > \\frac{1}{6}x-2$\`
-             - Correct: \`① $-1+2\\sqrt{2}$\`
-             - Incorrect: \`0.4x+0.1 > \\frac{1}{6}x-2\` (Missing $)
-             - Incorrect: \`① -1+2\\sqrt{2}\` (Missing $)
-          6. NO KOREAN IN MATH BLOCKS: NEVER place Korean characters or plain text punctuation inside $...$ or $$...$$. Separate them!
-             - Correct: \`$x$가 정수일 때\`
-             - Incorrect: \`$x가 정수일 때$\` (This causes fatal rendering errors)
+          5. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical equation, expression, inequality (<, >, \\le, \\ge), variable, fraction, root (\\sqrt), and multiple-choice option MUST be enclosed in $...$ (inline) or $$...$$ (block).
+             - Good: "일차부등식 $0.4x+0.1 > \\frac{1}{6}x-2$를 푸시오."
+             - BAD: "일차부등식 0.4x+0.1 > \\frac{1}{6}x-2를 푸시오." (Missing $)
+             - Good: "① $-1+2\\sqrt{2}$"
+             - BAD: "① -1+2\\sqrt{2}" (Missing $)
+             - IF YOU OMIT $ TAGS AROUND MATH, THE SYSTEM WILL FATALLY CRASH.
+          6. NO KOREAN IN MATH BLOCKS: NEVER place Korean characters inside $...$ or $$...$$. Separate them!
+             - Correct: "$x$가 정수일 때"
+             - Incorrect: "$x가 정수일 때$"
+             - Use \\square instead of \\Box for square shapes.
           7. PRESERVE the exact '_uid' and 'id' fields from the input.
           8. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
-          9. NO BARE COMMANDS: NEVER use LaTeX commands like \\boxed{} or \\text{} outside of math blocks. Use plain text like (가) for blanks.
-          10. JSON ESCAPING: Since you are outputting JSON, properly escape backslashes. Write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".
-          11. DIAGRAMS: If the original problem has a 'diagramSvg', you MUST generate a 'variantDiagramSvg' with the SAME shapes, but UPDATE the labels inside the SVG to match the new numbers/variables in your Twin Variant.
-             - PADDING: Ensure your viewBox has generous padding so nothing is cut off.
-             - SIMPLE LABELS: Use standard <text> tags for simple numbers/variables.
-             - COMPLEX MATH LABELS: Use <foreignObject overflow="visible"> embedding strict LaTeX ($...$) for complex math (fractions, roots). Ensure the <foreignObject> width/height is large enough. If the original had no SVG, leave empty.`;
+          9. JSON ESCAPING: Properly escape backslashes in JSON. Write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".
+          10. DIAGRAMS: If the original problem has a 'diagramSvg', you MUST generate a 'variantDiagramSvg' with the SAME shapes, but UPDATE the <foreignObject> labels inside the SVG to match the new numbers/variables in your Twin Variant. Ensure the <foreignObject> width/height is large enough.`;
 
           const payload = {
             contents: [{
