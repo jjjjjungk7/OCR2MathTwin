@@ -23,17 +23,26 @@
     /* Print specific styles */
     .print-only { display: none; }
     
-    /* --- BUG FIX: Tailwind Preflight SVG Reset breaks KaTeX square roots --- */
+    /* --- BUG FIX: Protect KaTeX from Tailwind Preflight --- */
+    .katex * {
+        box-sizing: content-box !important;
+        border-color: currentColor !important;
+    }
+    
+    /* Tailwind sets global SVG rules that squash KaTeX's microscopic square root SVGs to 0px. */
     .katex svg {
-        height: unset !important;
+        display: block !important;
+        position: absolute !important;
+        width: 100% !important;
+        height: inherit !important;
         max-width: none !important;
-        display: inline-block !important;
     }
 
-    /* Ensure AI-generated SVGs fit within columns properly */
-    .diagram-wrapper svg {
+    /* Ensure AI-generated SVGs fit within columns properly, but DO NOT target nested KaTeX SVGs */
+    .diagram-wrapper > svg {
         width: 100%;
         height: auto !important;
+        max-width: 100%;
     }
 
     @media screen {
@@ -59,27 +68,33 @@
       }
       .question-container { 
         column-count: 2; 
-        column-gap: 20px; /* Reduced gap to give columns more width */
+        column-gap: 20px; 
         column-rule: 1px solid #e5e7eb; 
       }
       .question-item { 
         break-inside: avoid-column; 
         margin-bottom: 30px; 
-        max-width: 100%; /* CRITICAL: Prevent container from exceeding column width */
-        overflow: hidden; /* CRITICAL: Prevent right-edge cutoff */
+        max-width: 100%; 
+        overflow: hidden; 
       }
       .math-content {
         max-width: 100%;
-        word-wrap: break-word; /* Ensure long text breaks */
+        word-wrap: break-word; 
       }
-      /* Constrain wide math blocks in print so they don't break the layout */
       .katex-display {
         max-width: 100%;
         overflow-x: hidden;
       }
-      /* Slightly scale down KaTeX fonts in print to fit tables better */
+      .diagram-wrapper > svg {
+        max-width: 100%;
+        height: auto;
+      }
       .katex {
         font-size: 0.95em;
+      }
+      /* Fallback: If KaTeX errors out, print the error in black instead of glaring red */
+      .katex-error {
+        color: black !important;
       }
       .solutions-section { page-break-before: always; column-count: 1; }
       .solution-item { break-inside: avoid; margin-bottom: 20px; }
@@ -108,12 +123,12 @@
       if (typeof str !== 'string') return str;
       let cleaned = str;
       
-      // 1. Convert any escaped \n or \\n into actual line breaks
+      // Convert any escaped \n or \\n into actual line breaks
       cleaned = cleaned.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n'); 
-      
-      // 2. Fix double-escaped LaTeX commands (e.g., \\frac -> \frac, \\right -> \right)
-      // This safely corrects typos where the AI over-escaped backslashes in JSON
+      // Fix double-escaped LaTeX commands
       cleaned = cleaned.replace(/\\\\([a-zA-Z])/g, '\\$1');
+      // Fix HTML encoded symbols that AI might mistakenly generate directly
+      cleaned = cleaned.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
       
       return cleaned;
     };
@@ -137,43 +152,41 @@
       if (!text) return { __html: '' };
       
       let html = text
-        .replace(/amp;/g, '&') // Retroactively clean up broken alignment tags from old data
-        .replace(/</g, "&lt;")
+        .replace(/&amp;/g, '&') 
+        .replace(/</g, "&lt;")  
         .replace(/>/g, "&gt;"); 
         
       if (typeof window !== 'undefined' && window.katex) {
-        // Block math ($$)
         html = html.replace(/\$\$(.*?)\$\$/gs, (match, math) => {
-          try { return window.katex.renderToString(math, { displayMode: true, throwOnError: false }); }
+          const unescapedMath = math.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+          try { return window.katex.renderToString(unescapedMath, { displayMode: true, throwOnError: false }); }
           catch (e) { return match; }
         })
-        // Inline math ($)
         .replace(/\$(.*?)\$/gs, (match, math) => {
-          try { return window.katex.renderToString(math, { displayMode: false, throwOnError: false }); }
+          const unescapedMath = math.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+          try { return window.katex.renderToString(unescapedMath, { displayMode: false, throwOnError: false }); }
           catch (e) { return match; }
         });
       }
 
-      // Convert actual newlines to HTML line breaks so they render correctly
       html = html.replace(/\n/g, '<br/>'); 
       return { __html: html };
     };
 
-    // New formatter specifically for SVG code to parse math without destroying SVG tags
     const formatSvg = (svgString) => {
       if (!svgString) return { __html: '' };
       
-      let html = svgString.replace(/amp;/g, '&');
+      let html = svgString.replace(/&amp;/g, '&');
         
       if (typeof window !== 'undefined' && window.katex) {
-        // Block math ($$)
         html = html.replace(/\$\$(.*?)\$\$/gs, (match, math) => {
-          try { return window.katex.renderToString(math, { displayMode: true, throwOnError: false }); }
+          const unescapedMath = math.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+          try { return window.katex.renderToString(unescapedMath, { displayMode: true, throwOnError: false }); }
           catch (e) { return match; }
         })
-        // Inline math ($)
         .replace(/\$(.*?)\$/gs, (match, math) => {
-          try { return window.katex.renderToString(math, { displayMode: false, throwOnError: false }); }
+          const unescapedMath = math.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+          try { return window.katex.renderToString(unescapedMath, { displayMode: false, throwOnError: false }); }
           catch (e) { return match; }
         });
       }
@@ -197,7 +210,6 @@
       const [examTitle, setExamTitle] = useState("수학 변형 문제지 (Math Twin Exam)");
       const [isDragging, setIsDragging] = useState(false);
       
-      // Feature: Persist API Key in LocalStorage so it survives page reloads
       const [customApiKey, setCustomApiKey] = useState(() => {
         if (typeof window !== 'undefined') {
           return localStorage.getItem('mathTwinApiKey') || "";
@@ -205,7 +217,6 @@
         return "";
       });
 
-      // Automatically save API key whenever it changes
       useEffect(() => {
         if (customApiKey) {
           localStorage.setItem('mathTwinApiKey', customApiKey.trim());
@@ -238,7 +249,6 @@
         processFiles(Array.from(e.target.files));
       };
 
-      // Drag and Drop Handlers
       const handleDragOver = (e) => {
         e.preventDefault();
         setIsDragging(true);
@@ -276,7 +286,6 @@
           return;
         }
 
-        // Calculate next available question number based on existing accumulation
         let nextId = 1;
         if (problems.length > 0) {
           const lastIdStr = problems[problems.length - 1].id;
@@ -294,24 +303,30 @@
             return { inlineData: { mimeType: file.type, data: base64Data } };
           }));
 
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${effectiveApiKey}`;
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${effectiveApiKey}`;
           
           const prompt = `You are an expert Math OCR AI for Korean Middle/High School exams. I am providing one or more images of an exam test paper.
           STRICT RULES:
           1. STRICTLY IGNORE all handwritten notes, solving steps, red/blue grading circles (O), large X marks, checkmarks, stars, and handwritten scores.
           2. Extract ONLY the original typed text, numbers, and formulas.
-          3. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical symbol, variable, or LaTeX command (like \\square, \\overline, \\mathrm, \\sqrt, \\frac, \\times) MUST be enclosed in $...$ for inline math or $$...$$ for block math. NEVER leave any backslash command bare in the plain text. For example, write "$\\square \\mathrm{ABCD}$에서" NOT "\\square \\mathrm{ABCD}에서". Multiple-choice options with math MUST be wrapped (e.g. ① $-1+2\\sqrt{2}$). ANY block environment (like \\begin{array}...\end{array}) MUST be completely enclosed inside $$ ... $$.
-          4. DIAGRAMS (CRITICAL): If the image contains formal printed geometric shapes, coordinate planes, grids, number lines, arcs, etc., you MUST recreate them accurately using raw HTML <svg> code in the 'diagramSvg' field. 
-             - You are an expert SVG coder. Even for complex diagrams (grids, arcs, overlapping shapes), you MUST write the full SVG code using <rect>, <polygon>, <path>, <circle>, <line>. 
-             - DO NOT give up and use the diagram placeholder for geometric figures. Write the SVG!
-             - COMPLETELY IGNORE freehand drawings, large hand-drawn circles, scribbles, or irregular pencil lines. ONLY draw the formal, mathematically intended printed diagram.
-             - For diagram math labels, DO NOT use standard <text> tags. You MUST use <foreignObject> embedding a HTML <div> with strict LaTeX enclosed in $...$. 
-             Example: <foreignObject x="10" y="20" width="100" height="50" overflow="visible"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex; justify-content:center; align-items:center; width:100%; height:100%; font-size:14px;">$(- \\frac{ab}{2})^2$</div></foreignObject>.
-          5. Replace geometric images ONLY IF they are real photographs with "[Insert Diagram: <description>]" in the 'diagramPlaceholder' field. Otherwise, leave it empty.
-          6. NUMBERING: The questions MUST be numbered sequentially starting from ${nextId}. The very first question you extract MUST be labeled as "${nextId}".
-          7. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
-          8. NO BARE COMMANDS: NEVER use LaTeX commands like \\boxed{} or \\text{} outside of math blocks ($...$ or $$...$$). For fill-in-the-blanks like a box around (가), simply use plain text (가).
-          9. JSON ESCAPING: Since you are outputting JSON, you must properly escape backslashes. For example: write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".`;
+          3. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical symbol, inequality (<, >, \\le, \\ge), variable, fraction, root (\\sqrt), and multiple-choice option MUST be enclosed in $...$ (inline) or $$...$$ (block).
+             - Correct: \`$0.4x+0.1 > \\frac{1}{6}x-2$\`
+             - Correct: \`① $-1+2\\sqrt{2}$\`
+             - Incorrect: \`0.4x+0.1 > \\frac{1}{6}x-2\` (Missing $)
+             - Incorrect: \`① -1+2\\sqrt{2}\` (Missing $)
+          4. NO KOREAN IN MATH BLOCKS: NEVER place Korean characters or plain text punctuation inside $...$ or $$...$$. Separate them!
+             - Correct: \`$x$가 정수일 때\`
+             - Incorrect: \`$x가 정수일 때$\` (This causes fatal rendering errors)
+          5. DIAGRAMS (CRITICAL): If the image contains formal printed geometric shapes, coordinate planes, grids, number lines, arcs, etc., you MUST recreate them accurately using raw HTML <svg> code in the 'diagramSvg' field. 
+             - You are an expert SVG coder. Write the full SVG code using <rect>, <polygon>, <path>, <circle>, <line>. 
+             - DO NOT use the diagram placeholder if you can draw it. Write the SVG!
+             - COMPLETELY IGNORE freehand drawings, scribbles, or grading lines. ONLY draw the formal, printed diagram.
+             - For diagram math labels, DO NOT use standard <text> tags. You MUST use <foreignObject overflow="visible"> embedding a HTML <div> with strict LaTeX enclosed in $...$. Example: <foreignObject x="10" y="20" width="100" height="50" overflow="visible"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex; justify-content:center; align-items:center; width:100%; height:100%; font-size:14px;">$(- \\frac{ab}{2})^2$</div></foreignObject>.
+          6. Replace geometric images ONLY IF they are real photographs with "[Insert Diagram: <description>]" in the 'diagramPlaceholder' field. Otherwise, leave it empty.
+          7. NUMBERING: The questions MUST be numbered sequentially starting from ${nextId}. The very first question you extract MUST be labeled as "${nextId}".
+          8. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
+          9. NO BARE COMMANDS: NEVER use LaTeX commands like \\boxed{} or \\text{} outside of math blocks. For fill-in-the-blanks, use plain text like (가).
+          10. JSON ESCAPING: Since you are outputting JSON, properly escape backslashes. Write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".`;
 
           const payload = {
             contents: [{
@@ -388,7 +403,7 @@
         }
 
         try {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${effectiveApiKey}`;
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${effectiveApiKey}`;
           
           const prompt = `You are an expert Mathematics Educator. I am providing a JSON array of extracted math problems.
           For each problem, create a "Twin Problem" (a conceptual variant).
@@ -397,12 +412,19 @@
           2. Change the numbers, functions, coefficients, or situational contexts. 
           3. Keep the exact same difficulty level.
           4. Provide a detailed, step-by-step solution for the NEW variant.
-          5. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical symbol, variable, or LaTeX command MUST be enclosed in $...$ for inline math or $$...$$ for block math. NEVER leave any backslash command bare. For example, write "$\\square \\mathrm{ABCD}$에서" NOT "\\square \\mathrm{ABCD}에서". ANY block environment (like \\begin{array}...\end{array}) MUST be completely enclosed inside $$ ... $$.
-          6. PRESERVE the exact '_uid' and 'id' fields from the input.
-          7. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
-          8. NO BARE COMMANDS: NEVER use LaTeX commands like \\boxed{} or \\text{} outside of math blocks. Use plain text like (가) for blanks.
-          9. JSON ESCAPING: Since you are outputting JSON, you must properly escape backslashes. For example: write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".
-          10. DIAGRAMS: If the original problem has a 'diagramSvg', you MUST generate a 'variantDiagramSvg' with the SAME shapes, but UPDATE the <foreignObject> labels inside the SVG to match the new numbers/variables in your Twin Variant using strict LaTeX ($...$). Ensure the <foreignObject> width/height is large enough. If the original had no SVG, leave empty.`;
+          5. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical symbol, inequality (<, >, \\le, \\ge), variable, fraction, root (\\sqrt), and multiple-choice option MUST be enclosed in $...$ (inline) or $$...$$ (block).
+             - Correct: \`$0.4x+0.1 > \\frac{1}{6}x-2$\`
+             - Correct: \`① $-1+2\\sqrt{2}$\`
+             - Incorrect: \`0.4x+0.1 > \\frac{1}{6}x-2\` (Missing $)
+             - Incorrect: \`① -1+2\\sqrt{2}\` (Missing $)
+          6. NO KOREAN IN MATH BLOCKS: NEVER place Korean characters or plain text punctuation inside $...$ or $$...$$. Separate them!
+             - Correct: \`$x$가 정수일 때\`
+             - Incorrect: \`$x가 정수일 때$\` (This causes fatal rendering errors)
+          7. PRESERVE the exact '_uid' and 'id' fields from the input.
+          8. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
+          9. NO BARE COMMANDS: NEVER use LaTeX commands like \\boxed{} or \\text{} outside of math blocks. Use plain text like (가) for blanks.
+          10. JSON ESCAPING: Since you are outputting JSON, properly escape backslashes. Write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".
+          11. DIAGRAMS: If the original problem has a 'diagramSvg', you MUST generate a 'variantDiagramSvg' with the SAME shapes, but UPDATE the <foreignObject> labels inside the SVG to match the new numbers/variables in your Twin Variant using strict LaTeX ($...$). Ensure the <foreignObject> width/height is large enough. If the original had no SVG, leave empty.`;
 
           const payload = {
             contents: [{
@@ -534,7 +556,6 @@
                     Upload Exam Images
                   </h2>
                   
-                  {/* DRAG AND DROP ZONE */}
                   <label 
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
