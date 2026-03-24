@@ -4,83 +4,89 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MathTwin AI - 수학 쌍둥이 문제 생성기</title>
-
+  
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-
+  
   <!-- React & ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-
+  
   <!-- Babel for in-browser JSX compilation -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
+  
   <!-- KaTeX -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
 
-  <!-- pdf.js (for PDF -> image conversion) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.min.js"></script>
-  <script>
-    if (window.pdfjsLib) {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.worker.min.js";
-    }
-  </script>
-
   <style>
+    /* Print specific styles */
     .print-only { display: none; }
-
+    
+    /* --- MATHML STYLING --- */
+    /* Style the native MathML tags so they look like beautiful textbook typography */
     math {
         font-family: 'Cambria Math', 'Latin Modern Math', 'Times New Roman', serif;
         font-size: 1.05em;
     }
 
+    /* Ensure AI-generated diagram SVGs fit within columns properly */
     .diagram-wrapper > svg {
         width: 100%;
         height: auto !important;
         max-width: 100%;
-        overflow: visible !important;
+        overflow: visible !important; /* Prevent AI shapes from clipping at edges */
     }
-
+    
+    /* Allow foreignObjects to bleed over boundaries to prevent LaTeX clipping */
     .diagram-wrapper foreignObject {
         overflow: visible !important;
     }
 
     @media screen {
       .math-content { font-family: 'Noto Sans KR', sans-serif; }
-      .katex-display { overflow-x: auto; overflow-y: hidden; padding-bottom: 5px; }
+      /* Allow scrolling for extremely wide equations on screen */
+      .katex-display { overflow-x: auto; overflow-y: hidden; padding-bottom: 5px; } 
     }
 
     @media print {
       .no-print { display: none !important; }
       .print-only { display: block; }
       @page { size: A4; margin: 8mm; }
-      body {
-        margin: 0; padding: 0;
-        font-family: 'Noto Serif KR', serif;
-        background: white;
+      body { 
+        margin: 0; padding: 0; 
+        font-family: 'Noto Serif KR', serif; 
+        background: white; 
         -webkit-print-color-adjust: exact;
-        font-size: 11pt;
+        font-size: 11pt; /* Enforce a standard readable exam size */
       }
-      .exam-header {
+      .exam-header { 
         display: flex; justify-content: space-between; align-items: flex-end;
-        border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 20px;
+        border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 20px; 
       }
-      .question-container {
-        column-count: 2;
-        column-gap: 20px;
-        column-rule: 1px solid #e5e7eb;
+      .question-container { 
+        column-count: 2; 
+        column-gap: 20px; 
+        column-rule: 1px solid #e5e7eb; 
       }
-      .question-item {
-        break-inside: avoid-column;
-        margin-bottom: 30px;
+      .question-item { 
+        break-inside: avoid-column; 
+        margin-bottom: 30px; 
+        max-width: 100%; 
+        overflow: hidden; 
+      }
+      .math-content {
         max-width: 100%;
-        overflow: hidden;
+        word-wrap: break-word; 
       }
-      .math-content { max-width: 100%; word-wrap: break-word; }
-      .katex-display { max-width: 100%; overflow-x: hidden; }
-      .diagram-wrapper > svg { max-width: 100%; height: auto; }
+      .katex-display {
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+      .diagram-wrapper > svg {
+        max-width: 100%;
+        height: auto;
+      }
       .solutions-section { page-break-before: always; column-count: 1; }
       .solution-item { break-inside: avoid; margin-bottom: 20px; }
     }
@@ -90,7 +96,7 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+    const { useState, useEffect } = React;
 
     // --- Inline Icons ---
     const IconWand = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h0"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>;
@@ -107,9 +113,14 @@
     const cleanAIString = (str) => {
       if (typeof str !== 'string') return str;
       let cleaned = str;
-      cleaned = cleaned.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n');
+      
+      // Convert any escaped \n or \\n into actual line breaks
+      cleaned = cleaned.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n'); 
+      // Fix double-escaped LaTeX commands
       cleaned = cleaned.replace(/\\\\([a-zA-Z])/g, '\\$1');
+      // Fix HTML encoded symbols that AI might mistakenly generate directly
       cleaned = cleaned.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+      
       return cleaned;
     };
 
@@ -118,7 +129,7 @@
       for (let i = 0; i < retries; i++) {
         try {
           const response = await fetch(url, options);
-          if (!response.ok) throw new Error(\`HTTP error! status: \${response.status}\`);
+          if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
           return await response.json();
         } catch (e) {
           if (i === retries - 1) throw e;
@@ -127,24 +138,33 @@
       }
     };
 
-    // --- Math Rendering Engine ---
+    // --- Math Rendering Engine & Auto-Corrector ---
     const processMathForKaTeX = (mathStr) => {
+      // 1. Unescape < and > so inequalities parse correctly in KaTeX!
       let unescaped = mathStr.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-      unescaped = unescaped.replace(/\n/g, ' ');
-      unescaped = unescaped.replace(/([가-힣ㄱ-ㅎㅏ-ㅣ]+)/g, '\\\\text{$1}');
+      
+      // 2. Remove line breaks inside inline math which causes fatal parse errors
+      unescaped = unescaped.replace(/\n/g, ' '); 
+      
+      // 3. AUTO-CORRECTOR: If the AI mistakenly placed Korean characters INSIDE the math tags 
+      //    (e.g., $0.4x > 1을$), this instantly wraps them in \text{을} to prevent KaTeX from crashing in red text!
+      unescaped = unescaped.replace(/([가-힣ㄱ-ㅎㅏ-ㅣ]+)/g, '\\text{$1}');
+      
       return unescaped;
     };
 
     const formatMathText = (text) => {
       if (!text) return { __html: '' };
-
+      
+      // Escape all HTML to prevent code injection, EXCEPT for what we render via KaTeX
       let html = text
-        .replace(/&amp;/g, '&')
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-
+        .replace(/&amp;/g, '&') 
+        .replace(/</g, "&lt;")  
+        .replace(/>/g, "&gt;"); 
+        
       if (typeof window !== 'undefined' && window.katex) {
         html = html.replace(/\$\$(.*?)\$\$/gs, (match, math) => {
+          // NATIVE MATHML: Instead of drawing shapes, output standard <math> tags that browsers render perfectly.
           try { return window.katex.renderToString(processMathForKaTeX(math), { displayMode: true, throwOnError: false, output: 'mathml' }); }
           catch (e) { return match; }
         })
@@ -154,14 +174,15 @@
         });
       }
 
-      html = html.replace(/\n/g, '<br/>');
+      html = html.replace(/\n/g, '<br/>'); 
       return { __html: html };
     };
 
     const formatSvg = (svgString) => {
       if (!svgString) return { __html: '' };
+      
       let html = svgString.replace(/&amp;/g, '&');
-
+        
       if (typeof window !== 'undefined' && window.katex) {
         html = html.replace(/\$\$(.*?)\$\$/gs, (match, math) => {
           try { return window.katex.renderToString(processMathForKaTeX(math), { displayMode: true, throwOnError: false, output: 'mathml' }); }
@@ -176,98 +197,22 @@
     };
 
     const MathText = ({ text, className = "" }) => (
-      <div className={\`math-content \${className}\`} dangerouslySetInnerHTML={formatMathText(text)} />
-    );
-
-    // --- PDF + Paste helpers ---
-    const isPdf = (file) => file && (file.type === "application/pdf" || (file.name || "").toLowerCase().endsWith(".pdf"));
-
-    const extractFilesFromDataTransfer = (dt) => {
-      const files = [];
-      if (dt?.items?.length) {
-        for (const item of dt.items) {
-          if (item.kind === "file") {
-            const f = item.getAsFile();
-            if (f) files.push(f);
-          }
-        }
-      } else if (dt?.files?.length) {
-        files.push(...Array.from(dt.files));
-      }
-      return files;
-    };
-
-    const pdfToPngFiles = async (pdfFile, { scale = 2, maxPages = 6, onProgress } = {}) => {
-      if (!window.pdfjsLib) throw new Error("pdf.js not loaded");
-
-      const buf = await pdfFile.arrayBuffer();
-      const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-
-      const out = [];
-      const pageCount = Math.min(pdf.numPages, maxPages);
-
-      for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
-        onProgress && onProgress({ pageNum, pageCount, totalPages: pdf.numPages, fileName: pdfFile.name });
-
-        const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale });
-
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        canvas.width = Math.ceil(viewport.width);
-        canvas.height = Math.ceil(viewport.height);
-
-        await page.render({ canvasContext: ctx, viewport }).promise;
-
-        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-        if (!blob) continue;
-
-        const baseName = (pdfFile.name || "document.pdf").replace(/\.pdf$/i, "");
-        const pngFile = new File([blob], \`\${baseName}-p\${pageNum}.png\`, { type: "image/png" });
-        out.push(pngFile);
-      }
-
-      return { files: out, totalPages: pdf.numPages, usedPages: pageCount };
-    };
-
-    // --- UI helper: toggle switch ---
-    const Toggle = ({ checked, onChange, labelOn="Append", labelOff="Replace" }) => (
-      <button
-        type="button"
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex items-center h-8 rounded-full w-28 border transition-colors ${
-          checked ? 'bg-blue-600 border-blue-700' : 'bg-gray-200 border-gray-300'
-        }`}
-        title={checked ? "Append to current selection" : "Replace current selection"}
-      >
-        <span
-          className={`inline-block w-6 h-6 transform bg-white rounded-full transition-transform ${
-            checked ? 'translate-x-20' : 'translate-x-1'
-          }`}
-        />
-        <span className="absolute left-2 text-xs font-semibold text-white/90">{labelOff}</span>
-        <span className="absolute right-2 text-xs font-semibold text-white/90">{labelOn}</span>
-      </button>
+      <div 
+        className={`math-content ${className}`} 
+        dangerouslySetInnerHTML={formatMathText(text)} 
+      />
     );
 
     // --- Main Application ---
     function App() {
       const [files, setFiles] = useState([]);
       const [previewUrls, setPreviewUrls] = useState([]);
-      const [status, setStatus] = useState('idle');
+      const [status, setStatus] = useState('idle'); 
       const [errorMsg, setErrorMsg] = useState("");
-      const [infoMsg, setInfoMsg] = useState("");
       const [problems, setProblems] = useState([]);
       const [examTitle, setExamTitle] = useState("수학 변형 문제지 (Math Twin Exam)");
       const [isDragging, setIsDragging] = useState(false);
-
-      // Upload mode: append vs replace
-      const [appendMode, setAppendMode] = useState(true);
-
-      // File processing progress
-      const [fileProcessStatus, setFileProcessStatus] = useState("idle"); // idle | loading
-      const [fileProcessMsg, setFileProcessMsg] = useState("");
-
+      
       const [customApiKey, setCustomApiKey] = useState(() => {
         if (typeof window !== 'undefined') {
           return localStorage.getItem('mathTwinApiKey') || "";
@@ -275,129 +220,36 @@
         return "";
       });
 
-      const previewUrlsRef = useRef(previewUrls);
-      useEffect(() => { previewUrlsRef.current = previewUrls; }, [previewUrls]);
-
-      const filesRef = useRef(files);
-      useEffect(() => { filesRef.current = files; }, [files]);
-
       useEffect(() => {
-        if (customApiKey) localStorage.setItem('mathTwinApiKey', customApiKey.trim());
-        else localStorage.removeItem('mathTwinApiKey');
+        if (customApiKey) {
+          localStorage.setItem('mathTwinApiKey', customApiKey.trim());
+        } else {
+          localStorage.removeItem('mathTwinApiKey');
+        }
       }, [customApiKey]);
-
-      const revokePreviews = (urls) => {
-        (urls || []).forEach(url => URL.revokeObjectURL(url));
-      };
 
       const handleReset = () => {
         if (window.confirm("Are you sure you want to clear all extracted data and start over?")) {
           setFiles([]);
-          revokePreviews(previewUrlsRef.current);
+          previewUrls.forEach(url => URL.revokeObjectURL(url));
           setPreviewUrls([]);
           setProblems([]);
           setStatus('idle');
           setErrorMsg("");
-          setInfoMsg("");
-          setFileProcessStatus("idle");
-          setFileProcessMsg("");
         }
       };
 
-      const processFiles = async (selectedFiles) => {
-        if (!selectedFiles || selectedFiles.length === 0) return;
-
-        setErrorMsg("");
-        setInfoMsg("");
-        setFileProcessStatus("loading");
-        setFileProcessMsg("Preparing files...");
-
-        try {
-          const imageFiles = [];
-          const warnings = [];
-
-          for (const f of selectedFiles) {
-            if (isPdf(f)) {
-              const { files: pages, totalPages, usedPages } = await pdfToPngFiles(f, {
-                scale: 2,
-                maxPages: 6,
-                onProgress: ({ pageNum, pageCount, totalPages, fileName }) => {
-                  setFileProcessMsg(`Converting PDF "${fileName}" page ${pageNum}/${pageCount} (total ${totalPages})...`);
-                }
-              });
-
-              imageFiles.push(...pages);
-
-              if (totalPages > usedPages) {
-                warnings.push(`"${f.name}" has ${totalPages} pages. Only the first ${usedPages} pages were imported.`);
-              }
-            } else if (f.type?.startsWith("image/")) {
-              imageFiles.push(f);
-            }
-          }
-
-          if (imageFiles.length === 0) {
-            setErrorMsg("No supported files found. Please use images or PDF files.");
-            setFileProcessStatus("idle");
-            setFileProcessMsg("");
-            setStatus("error");
-            return;
-          }
-
-          // Merge/replace depending on mode
-          const nextFiles = appendMode ? [...filesRef.current, ...imageFiles] : imageFiles;
-
-          // Update previews: if replace mode, revoke old. if append, keep old + add new
-          if (!appendMode) {
-            revokePreviews(previewUrlsRef.current);
-            setPreviewUrls(nextFiles.map(f => URL.createObjectURL(f)));
-          } else {
-            const newUrls = imageFiles.map(f => URL.createObjectURL(f));
-            setPreviewUrls([...previewUrlsRef.current, ...newUrls]);
-          }
-
-          setFiles(nextFiles);
-
-          if (warnings.length) setInfoMsg(warnings.join(" "));
-          setFileProcessStatus("idle");
-          setFileProcessMsg("");
-          setStatus("idle");
-        } catch (e) {
-          console.error(e);
-          setErrorMsg("Failed to process files (PDF conversion or image read failed).");
-          setFileProcessStatus("idle");
-          setFileProcessMsg("");
-          setStatus("error");
+      const processFiles = (selectedFiles) => {
+        if (selectedFiles.length > 0) {
+          setFiles(selectedFiles);
+          previewUrls.forEach(url => URL.revokeObjectURL(url));
+          setPreviewUrls(selectedFiles.map(f => URL.createObjectURL(f)));
+          setStatus('idle');
         }
       };
 
-      // Paste handler: Ctrl+V to add clipboard images
-      useEffect(() => {
-        const onPaste = async (e) => {
-          const items = e.clipboardData?.items;
-          if (!items) return;
-
-          const pasted = [];
-          for (const item of items) {
-            if (item.kind === "file") {
-              const f = item.getAsFile();
-              if (f) pasted.push(f);
-            }
-          }
-
-          if (pasted.length > 0) {
-            await processFiles(pasted);
-          }
-        };
-
-        window.addEventListener("paste", onPaste);
-        return () => window.removeEventListener("paste", onPaste);
-      }, [appendMode]);
-
-      const handleFileChange = async (e) => {
-        await processFiles(Array.from(e.target.files));
-        // allow picking same file again
-        e.target.value = "";
+      const handleFileChange = (e) => {
+        processFiles(Array.from(e.target.files));
       };
 
       const handleDragOver = (e) => {
@@ -410,11 +262,12 @@
         setIsDragging(false);
       };
 
-      const handleDrop = async (e) => {
+      const handleDrop = (e) => {
         e.preventDefault();
         setIsDragging(false);
-        const dropped = extractFilesFromDataTransfer(e.dataTransfer);
-        if (dropped.length > 0) await processFiles(dropped);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          processFiles(Array.from(e.dataTransfer.files));
+        }
       };
 
       const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -428,8 +281,7 @@
         if (files.length === 0) return;
         setStatus('ocr_loading');
         setErrorMsg("");
-        setInfoMsg("");
-
+        
         const effectiveApiKey = customApiKey.trim();
         if (!effectiveApiKey) {
           setErrorMsg("Please enter a valid Gemini API key.");
@@ -441,7 +293,11 @@
         if (problems.length > 0) {
           const lastIdStr = problems[problems.length - 1].id;
           const match = lastIdStr.toString().match(/\d+/);
-          nextId = match ? parseInt(match[0]) + 1 : (problems.length + 1);
+          if (match) {
+            nextId = parseInt(match[0]) + 1;
+          } else {
+            nextId = problems.length + 1;
+          }
         }
 
         try {
@@ -451,20 +307,32 @@
           }));
 
           const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${effectiveApiKey}`;
-
+          
           const prompt = `You are an expert Math OCR AI for Korean Middle/High School exams. I am providing one or more images of an exam test paper.
-STRICT RULES:
-1. STRICTLY IGNORE all handwritten notes, solving steps, red/blue grading circles (O), large X marks, checkmarks, stars, and handwritten scores.
-2. Extract ONLY the original typed text, numbers, and formulas.
-3. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical equation, expression, inequality (<, >, \\le, \\ge), variable, fraction, root (\\sqrt), and multiple-choice option MUST be enclosed in $...$ (inline) or $$...$$ (block).
-   - IF YOU OMIT $ TAGS AROUND MATH, THE SYSTEM WILL FATALLY CRASH.
-4. NO KOREAN IN MATH BLOCKS: NEVER place Korean characters inside $...$ or $$...$$. Separate them!
-   - Use \\square instead of \\Box for square shapes.
-5. DIAGRAMS: If the image contains formal printed geometric shapes, coordinate planes, grids, number lines, arcs, etc., you MUST recreate them accurately using raw HTML <svg> code in the 'diagramSvg' field.
-6. Replace geometric images ONLY IF they are real photographs with "[Insert Diagram: <description>]" in the 'diagramPlaceholder' field. Otherwise, leave it empty.
-7. NUMBERING: The questions MUST be numbered sequentially starting from ${nextId}. The very first question you extract MUST be labeled as "${nextId}".
-8. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
-9. JSON ESCAPING: Properly escape backslashes in JSON. Write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".`;
+          STRICT RULES:
+          1. STRICTLY IGNORE all handwritten notes, solving steps, red/blue grading circles (O), large X marks, checkmarks, stars, and handwritten scores.
+          2. Extract ONLY the original typed text, numbers, and formulas.
+          3. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical equation, expression, inequality (<, >, \\le, \\ge), variable, fraction, root (\\sqrt), and multiple-choice option MUST be enclosed in $...$ (inline) or $$...$$ (block).
+             - Good: "일차부등식 $0.4x+0.1 > \\frac{1}{6}x-2$를 푸시오."
+             - BAD: "일차부등식 0.4x+0.1 > \\frac{1}{6}x-2를 푸시오." (Missing $)
+             - Good: "① $-1+2\\sqrt{2}$"
+             - BAD: "① -1+2\\sqrt{2}" (Missing $)
+             - IF YOU OMIT $ TAGS AROUND MATH, THE SYSTEM WILL FATALLY CRASH.
+          4. NO KOREAN IN MATH BLOCKS: NEVER place Korean characters inside $...$ or $$...$$. Separate them!
+             - Correct: "$x$가 정수일 때"
+             - Incorrect: "$x가 정수일 때$"
+             - Use \\square instead of \\Box for square shapes.
+          5. DIAGRAMS: If the image contains formal printed geometric shapes, coordinate planes, grids, number lines, arcs, etc., you MUST recreate them accurately using raw HTML <svg> code in the 'diagramSvg' field. 
+             - You are an expert SVG coder. Write the full SVG code using <rect>, <polygon>, <path>, <circle>, <line>. 
+             - PADDING: ALWAYS add generous padding to your viewBox so no shapes or labels are cut off.
+             - MULTIPLE CHOICE GRAPHS: If the multiple-choice options (①~⑤) are themselves graphs (like 5 different number lines), you MUST draw ALL 5 of them neatly spaced out vertically inside the single 'diagramSvg' and label them (①, ②, etc.).
+             - SIMPLE LABELS: For simple numbers (like 1, -3, 0), use standard SVG <text> tags.
+             - COMPLEX MATH LABELS: ONLY use <foreignObject> for complex LaTeX math (fractions, roots, exponents). Example: <foreignObject x="10" y="20" width="120" height="60" overflow="visible"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex; justify-content:center; align-items:center; width:100%; height:100%; font-size:14px; white-space:nowrap;">$(- \\frac{ab}{2})^2$</div></foreignObject>.
+             - COMPLETELY IGNORE freehand drawings, scribbles, or grading lines. ONLY draw the formal, printed diagram.
+          6. Replace geometric images ONLY IF they are real photographs with "[Insert Diagram: <description>]" in the 'diagramPlaceholder' field. Otherwise, leave it empty.
+          7. NUMBERING: The questions MUST be numbered sequentially starting from ${nextId}. The very first question you extract MUST be labeled as "${nextId}".
+          8. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
+          9. JSON ESCAPING: Properly escape backslashes in JSON. Write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".`;
 
           const payload = {
             contents: [{
@@ -484,7 +352,7 @@ STRICT RULES:
                     id: { type: "STRING" },
                     originalLatex: { type: "STRING" },
                     diagramPlaceholder: { type: "STRING" },
-                    diagramSvg: { type: "STRING" }
+                    diagramSvg: { type: "STRING", description: "Raw HTML <svg> code recreating the formal printed diagram only. Empty if none." }
                   },
                   required: ["id", "originalLatex"]
                 }
@@ -500,46 +368,41 @@ STRICT RULES:
 
           const extractedText = result.candidates?.[0]?.content?.parts?.[0]?.text;
           if (!extractedText) throw new Error("No text returned from AI.");
-
+          
           const parsedProblems = JSON.parse(extractedText);
-          const newProblems = parsedProblems.map(p => ({
-            ...p,
+          const newProblems = parsedProblems.map(p => ({ 
+            ...p, 
             id: p.id ? p.id.toString() : "",
             originalLatex: cleanAIString(p.originalLatex),
             diagramPlaceholder: cleanAIString(p.diagramPlaceholder),
             diagramSvg: cleanAIString(p.diagramSvg || ""),
-            _uid: Math.random().toString(36).substr(2, 9),
-            variantLatex: "",
-            solutionLatex: "",
+            _uid: Math.random().toString(36).substr(2, 9), 
+            variantLatex: "", 
+            solutionLatex: "", 
             finalAnswer: "",
             variantDiagramSvg: ""
           }));
-
+          
           setProblems(prev => [...prev, ...newProblems]);
-
-          // Clear selection after OCR
           setFiles([]);
-          revokePreviews(previewUrlsRef.current);
           setPreviewUrls([]);
-
           setStatus('idle');
         } catch (err) {
           console.error(err);
-          setErrorMsg("Failed to process images. Please check your API key and try again.");
+          setErrorMsg("Failed to process image. Please check your API key and try again.");
           setStatus('error');
         }
       };
 
       const generateTwins = async () => {
         if (problems.length === 0) return;
-
-        const targetProblems = problems.some(p => !p.variantLatex)
-          ? problems.filter(p => !p.variantLatex)
+        
+        const targetProblems = problems.some(p => !p.variantLatex) 
+          ? problems.filter(p => !p.variantLatex) 
           : problems;
-
+        
         setStatus('gen_loading');
         setErrorMsg("");
-        setInfoMsg("");
 
         const effectiveApiKey = customApiKey.trim();
         if (!effectiveApiKey) {
@@ -550,20 +413,28 @@ STRICT RULES:
 
         try {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${effectiveApiKey}`;
-
+          
           const prompt = `You are an expert Mathematics Educator. I am providing a JSON array of extracted math problems.
-For each problem, create a "Twin Problem" (a conceptual variant).
-RULES:
-1. The variant MUST require the EXACT same logical solving steps and conceptual understanding.
-2. Change the numbers, functions, coefficients, or situational contexts.
-3. Keep the exact same difficulty level.
-4. Provide a detailed, step-by-step solution for the NEW variant.
-5. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical equation, expression, inequality (<, >, \\le, \\ge), variable, fraction, root (\\sqrt), and multiple-choice option MUST be enclosed in $...$ (inline) or $$...$$ (block).
-6. NO KOREAN IN MATH BLOCKS: NEVER place Korean characters inside $...$ or $$...$$. Separate them!
-7. PRESERVE the exact '_uid' and 'id' fields from the input.
-8. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
-9. JSON ESCAPING: Properly escape backslashes in JSON. Write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".
-10. DIAGRAMS: If the original problem has a 'diagramSvg', you MUST generate a 'variantDiagramSvg' with the SAME shapes, but UPDATE the <foreignObject> labels inside the SVG to match the new numbers/variables in your Twin Variant.`;
+          For each problem, create a "Twin Problem" (a conceptual variant).
+          RULES:
+          1. The variant MUST require the EXACT same logical solving steps and conceptual understanding.
+          2. Change the numbers, functions, coefficients, or situational contexts. 
+          3. Keep the exact same difficulty level.
+          4. Provide a detailed, step-by-step solution for the NEW variant.
+          5. STRICT MATH ENCLOSURE (ABSOLUTELY CRITICAL): EVERY SINGLE mathematical equation, expression, inequality (<, >, \\le, \\ge), variable, fraction, root (\\sqrt), and multiple-choice option MUST be enclosed in $...$ (inline) or $$...$$ (block).
+             - Good: "일차부등식 $0.4x+0.1 > \\frac{1}{6}x-2$를 푸시오."
+             - BAD: "일차부등식 0.4x+0.1 > \\frac{1}{6}x-2를 푸시오." (Missing $)
+             - Good: "① $-1+2\\sqrt{2}$"
+             - BAD: "① -1+2\\sqrt{2}" (Missing $)
+             - IF YOU OMIT $ TAGS AROUND MATH, THE SYSTEM WILL FATALLY CRASH.
+          6. NO KOREAN IN MATH BLOCKS: NEVER place Korean characters inside $...$ or $$...$$. Separate them!
+             - Correct: "$x$가 정수일 때"
+             - Incorrect: "$x가 정수일 때$"
+             - Use \\square instead of \\Box for square shapes.
+          7. PRESERVE the exact '_uid' and 'id' fields from the input.
+          8. FORMATTING: Use actual line breaks in your text, DO NOT output literal '\\n' sequences.
+          9. JSON ESCAPING: Properly escape backslashes in JSON. Write "\\\\frac" instead of "\\frac", "\\\\sqrt" instead of "\\sqrt".
+          10. DIAGRAMS: If the original problem has a 'diagramSvg', you MUST generate a 'variantDiagramSvg' with the SAME shapes, but UPDATE the <foreignObject> labels inside the SVG to match the new numbers/variables in your Twin Variant. Ensure the <foreignObject> width/height is large enough.`;
 
           const payload = {
             contents: [{
@@ -584,7 +455,7 @@ RULES:
                     solutionLatex: { type: "STRING" },
                     finalAnswer: { type: "STRING" },
                     diagramPlaceholder: { type: "STRING" },
-                    variantDiagramSvg: { type: "STRING" }
+                    variantDiagramSvg: { type: "STRING", description: "Raw HTML <svg> code with updated labels for the variant." }
                   },
                   required: ["_uid", "id", "originalLatex", "variantLatex", "solutionLatex", "finalAnswer"]
                 }
@@ -600,14 +471,14 @@ RULES:
 
           const extractedText = result.candidates?.[0]?.content?.parts?.[0]?.text;
           if (!extractedText) throw new Error("No text returned from AI.");
-
+          
           const updatedProblemsData = JSON.parse(extractedText);
-
+          
           setProblems(prev => prev.map(p => {
             const updated = updatedProblemsData.find(u => u._uid === p._uid);
             if (updated) {
-              return {
-                ...p,
+              return { 
+                ...p, 
                 variantLatex: cleanAIString(updated.variantLatex),
                 solutionLatex: cleanAIString(updated.solutionLatex),
                 finalAnswer: cleanAIString(updated.finalAnswer),
@@ -616,7 +487,7 @@ RULES:
             }
             return p;
           }));
-
+          
           setStatus('success');
         } catch (err) {
           console.error(err);
@@ -638,7 +509,9 @@ RULES:
           <div className="no-print max-w-6xl mx-auto p-6">
             <header className="flex justify-between items-center mb-8 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
               <div className="flex items-center gap-3">
-                <div className="bg-blue-600 p-2 rounded-lg text-white"><IconWand /></div>
+                <div className="bg-blue-600 p-2 rounded-lg text-white">
+                  <IconWand />
+                </div>
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">MathTwin AI</h1>
                   <p className="text-sm text-gray-500">수학 쌍둥이 문제 자동 생성기</p>
@@ -647,8 +520,8 @@ RULES:
 
               <div className="flex-1 max-w-md mx-8 flex items-center gap-3 relative">
                 <label className="text-sm font-semibold text-gray-600 whitespace-nowrap">API Key:</label>
-                <input
-                  type="password"
+                <input 
+                  type="password" 
                   placeholder="Enter your Gemini API key..."
                   value={customApiKey}
                   onChange={(e) => setCustomApiKey(e.target.value)}
@@ -659,16 +532,16 @@ RULES:
                     Saved Locally
                   </span>
                 )}
-                <button
-                  onClick={handleReset}
-                  className="p-2.5 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 hover:text-red-600 transition-colors ml-1"
+                <button 
+                  onClick={handleReset} 
+                  className="p-2.5 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 hover:text-red-600 transition-colors ml-1" 
                   title="Clear all data and restart"
                 >
                   <IconRefresh />
                 </button>
               </div>
 
-              <button
+              <button 
                 onClick={handlePrint}
                 disabled={problems.length === 0 || !problems[0].variantLatex}
                 className="flex items-center gap-2 bg-gray-900 hover:bg-gray-800 text-white px-5 py-2.5 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
@@ -679,51 +552,29 @@ RULES:
             </header>
 
             {errorMsg && (
-              <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-3">
+              <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-3">
                 <IconAlert />
                 <p>{errorMsg}</p>
-              </div>
-            )}
-            {infoMsg && (
-              <div className="mb-4 bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg">
-                {infoMsg}
-              </div>
-            )}
-            {fileProcessStatus === "loading" && (
-              <div className="mb-6 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg flex items-center gap-3">
-                <IconLoader />
-                <p className="text-sm">{fileProcessMsg}</p>
               </div>
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-4 space-y-4">
                 <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-lg font-bold flex items-center gap-2">
-                      <span className="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span>
-                      Upload Exam Images / PDF
-                    </h2>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500 font-semibold">Mode</span>
-                      <Toggle checked={appendMode} onChange={setAppendMode} labelOn="Append" labelOff="Replace" />
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-gray-500 mb-4">
-                    드래그&드롭, 클릭 업로드, 또는 <b>Ctrl+V 붙여넣기</b> 지원. PDF는 <b>최대 6페이지</b>까지 변환됩니다.
-                  </p>
-
-                  <label
+                  <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+                    <span className="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span>
+                    Upload Exam Images
+                  </h2>
+                  
+                  <label 
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                     className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors group ${
                       isDragging ? 'bg-blue-50 border-blue-500' : 'border-gray-300 hover:bg-blue-50 hover:border-blue-400'
                     }`}
-                    title="Drag images/PDF here, click to select, or paste (Ctrl+V) images"
                   >
-                    <input type="file" className="hidden" accept="image/*,application/pdf" multiple onChange={handleFileChange} />
+                    <input type="file" className="hidden" accept="image/*" multiple onChange={handleFileChange} />
                     {previewUrls.length > 0 ? (
                       <div className="flex flex-wrap gap-2 justify-center max-h-48 overflow-y-auto w-full p-2 pointer-events-none">
                         {previewUrls.map((url, idx) => (
@@ -734,20 +585,20 @@ RULES:
                       <div className="pointer-events-none text-center">
                         <IconUpload className={`mx-auto mb-3 transition-colors ${isDragging ? 'text-blue-500' : 'text-gray-400 group-hover:text-blue-500'}`} />
                         <p className={`text-sm font-medium ${isDragging ? 'text-blue-600' : 'text-gray-600'}`}>
-                          {isDragging ? 'Drop images/PDF here' : 'Click / Drag images or PDF / Paste image (Ctrl+V)'}
+                          {isDragging ? 'Drop images here' : 'Click or drag images here'}
                         </p>
                         <p className="text-xs text-gray-400 mt-1">Select multiple files at once</p>
                       </div>
                     )}
                   </label>
 
-                  <button
+                  <button 
                     onClick={runOCR}
-                    disabled={files.length === 0 || status === 'ocr_loading' || fileProcessStatus === "loading"}
+                    disabled={files.length === 0 || status === 'ocr_loading'}
                     className="w-full mt-4 flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition-colors disabled:opacity-50"
                   >
                     {status === 'ocr_loading' ? <IconLoader /> : <IconFileText />}
-                    {status === 'ocr_loading' ? "Digitizing & Cleaning..." : `Extract Text (OCR)${files.length ? ` • ${files.length} images` : ""}`}
+                    {status === 'ocr_loading' ? "Digitizing & Cleaning..." : "Extract Text (OCR)"}
                   </button>
                 </div>
 
@@ -757,30 +608,30 @@ RULES:
                     Generate Twins
                   </h2>
                   <p className="text-sm text-gray-500 mb-4">Creates conceptually identical variants with step-by-step solutions.</p>
-
-                  <button
+                  
+                  <button 
                     onClick={generateTwins}
                     disabled={problems.length === 0 || status === 'gen_loading'}
                     className="w-full flex justify-center items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-semibold transition-colors disabled:opacity-50"
                   >
                     {status === 'gen_loading' ? <IconLoader /> : <IconWand />}
-                    {status === 'gen_loading'
-                      ? "Generating Variants..."
-                      : problems.some(p => !p.variantLatex)
-                        ? "Create Twin Problems"
+                    {status === 'gen_loading' 
+                      ? "Generating Variants..." 
+                      : problems.some(p => !p.variantLatex) 
+                        ? "Create Twin Problems" 
                         : "Regenerate All Twins"}
                   </button>
                 </div>
 
                 <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-                  <h2 className="text-sm font-bold text-gray-600 mb-2 uppercase tracking-wider">Exam Settings</h2>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Exam Title</label>
-                  <input
-                    type="text"
-                    value={examTitle}
-                    onChange={(e) => setExamTitle(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
+                   <h2 className="text-sm font-bold text-gray-600 mb-2 uppercase tracking-wider">Exam Settings</h2>
+                   <label className="block text-sm font-medium text-gray-700 mb-1">Exam Title</label>
+                   <input 
+                     type="text" 
+                     value={examTitle}
+                     onChange={(e) => setExamTitle(e.target.value)}
+                     className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                   />
                 </div>
               </div>
 
@@ -789,7 +640,7 @@ RULES:
                   {problems.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20">
                       <div className="mb-4 opacity-20"><IconImage /></div>
-                      <p>Upload images/PDF and run OCR to see extracted problems here.</p>
+                      <p>Upload an image and run OCR to see extracted problems here.</p>
                     </div>
                   ) : (
                     <div className="space-y-6">
@@ -800,17 +651,13 @@ RULES:
                               <span className="bg-gray-200 text-gray-700 w-6 h-6 rounded text-xs flex items-center justify-center">{prob.id}</span>
                               Original OCR
                             </span>
-                            {prob.variantLatex && (
-                              <span className="text-xs font-semibold bg-green-100 text-green-700 px-2 py-1 rounded-full flex items-center gap-1">
-                                <IconCheck /> Twin Generated
-                              </span>
-                            )}
+                            {prob.variantLatex && <span className="text-xs font-semibold bg-green-100 text-green-700 px-2 py-1 rounded-full flex items-center gap-1"><IconCheck /> Twin Generated</span>}
                           </div>
-
+                          
                           <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                               <label className="block text-xs font-semibold text-gray-500 mb-2">ORIGINAL (Extracted)</label>
-                              <textarea
+                              <textarea 
                                 className="w-full text-sm font-mono bg-gray-50 border border-gray-200 rounded p-2 h-40 focus:ring-2 focus:ring-blue-500 outline-none resize-none whitespace-pre-wrap"
                                 value={prob.originalLatex}
                                 onChange={(e) => updateProblem(idx, 'originalLatex', e.target.value)}
@@ -819,14 +666,14 @@ RULES:
                                 <MathText text={prob.originalLatex} className="text-sm" />
                               </div>
                               {prob.diagramSvg && (
-                                <div className="mt-2 p-2 bg-white border border-gray-100 rounded flex justify-center overflow-x-auto diagram-wrapper"
+                                <div className="mt-2 p-2 bg-white border border-gray-100 rounded flex justify-center overflow-x-auto diagram-wrapper" 
                                      dangerouslySetInnerHTML={formatSvg(prob.diagramSvg)} />
                               )}
                             </div>
-
+                            
                             <div className={!prob.variantLatex ? "opacity-50" : ""}>
                               <label className="block text-xs font-semibold text-indigo-500 mb-2">TWIN VARIANT</label>
-                              <textarea
+                              <textarea 
                                 className="w-full text-sm font-mono bg-indigo-50 border border-indigo-200 rounded p-2 h-40 focus:ring-2 focus:ring-indigo-500 outline-none resize-none whitespace-pre-wrap"
                                 value={prob.variantLatex || "Click 'Create Twin Problems' to generate."}
                                 onChange={(e) => updateProblem(idx, 'variantLatex', e.target.value)}
@@ -836,7 +683,7 @@ RULES:
                                 {prob.variantLatex ? <MathText text={prob.variantLatex} className="text-sm" /> : <span className="text-sm text-gray-400 italic">Preview will appear here...</span>}
                               </div>
                               {prob.variantDiagramSvg && (
-                                <div className="mt-2 p-2 bg-white border border-gray-100 rounded flex justify-center overflow-x-auto diagram-wrapper"
+                                <div className="mt-2 p-2 bg-white border border-gray-100 rounded flex justify-center overflow-x-auto diagram-wrapper" 
                                      dangerouslySetInnerHTML={formatSvg(prob.variantDiagramSvg)} />
                               )}
                             </div>
@@ -844,17 +691,17 @@ RULES:
 
                           {prob.solutionLatex && (
                             <div className="border-t border-gray-200 bg-gray-50 p-4">
-                              <details>
-                                <summary className="text-sm font-semibold cursor-pointer text-gray-600 flex items-center gap-1">
-                                  View Generated Solution
-                                </summary>
-                                <div className="mt-3 p-3 bg-white border border-gray-200 rounded text-sm">
-                                  <MathText text={prob.solutionLatex} />
-                                  <div className="mt-3 pt-2 border-t border-gray-100 font-bold text-red-600">
-                                    Answer: <MathText text={prob.finalAnswer} className="inline-block ml-2" />
-                                  </div>
-                                </div>
-                              </details>
+                               <details>
+                                 <summary className="text-sm font-semibold cursor-pointer text-gray-600 flex items-center gap-1">
+                                   View Generated Solution
+                                 </summary>
+                                 <div className="mt-3 p-3 bg-white border border-gray-200 rounded text-sm">
+                                   <MathText text={prob.solutionLatex} />
+                                   <div className="mt-3 pt-2 border-t border-gray-100 font-bold text-red-600">
+                                     Answer: <MathText text={prob.finalAnswer} className="inline-block ml-2" />
+                                   </div>
+                                 </div>
+                               </details>
                             </div>
                           )}
                         </div>
@@ -887,16 +734,17 @@ RULES:
                     <span style={{ fontWeight: 'bold', fontSize: '16px', minWidth: '24px' }}>{prob.id}.</span>
                     <div style={{ flex: 1, overflow: 'hidden' }}>
                       <MathText text={prob.variantLatex || prob.originalLatex} />
+                      
                       {prob.variantDiagramSvg ? (
-                        <div className="diagram-wrapper" style={{ marginTop: '15px', display: 'flex', justifyContent: 'center', width: '100%' }}
+                        <div className="diagram-wrapper" style={{ marginTop: '15px', display: 'flex', justifyContent: 'center', width: '100%' }} 
                              dangerouslySetInnerHTML={formatSvg(prob.variantDiagramSvg)} />
                       ) : prob.diagramSvg ? (
-                        <div className="diagram-wrapper" style={{ marginTop: '15px', display: 'flex', justifyContent: 'center', width: '100%' }}
+                        <div className="diagram-wrapper" style={{ marginTop: '15px', display: 'flex', justifyContent: 'center', width: '100%' }} 
                              dangerouslySetInnerHTML={formatSvg(prob.diagramSvg)} />
                       ) : prob.diagramPlaceholder ? (
-                        <div style={{
-                          marginTop: '15px', padding: '30px', border: '1px dashed #999',
-                          textAlign: 'center', color: '#666', fontSize: '12px', background: '#f9f9f9'
+                        <div style={{ 
+                          marginTop: '15px', padding: '30px', border: '1px dashed #999', 
+                          textAlign: 'center', color: '#666', fontSize: '12px', background: '#f9f9f9' 
                         }}>
                           {prob.diagramPlaceholder}
                         </div>
